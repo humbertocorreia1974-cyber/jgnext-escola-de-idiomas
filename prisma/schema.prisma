@@ -1,0 +1,540 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  termsAcceptedAt   DateTime?
+  id                String             @id @default(cuid())
+  name              String?
+  email             String             @unique
+  passwordHash      String
+  plan              String             @default("free")
+  // 🩹 2026-09-01: apps com múltiplos papéis (jogador/dono, recepção/vet/admin…)
+  // faziam `prisma.user.findMany({ where: { role } })` e o build quebrava
+  // (TS2353: 'role' não existe em UserWhereInput). Agora a fundação tem o campo.
+  role              String             @default("user")
+  stripeCustomerId  String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  projects          Project[]
+  aluno             Aluno?
+  responsavel       Responsavel?
+  professor         Professor?
+  contratos         Contrato[]         @relation("ContratoCriador")
+  reposicaoAulas    ReposicaoAula[]    @relation("ReposicaoSolicitante")
+  materialDidaticos MaterialDidatico[] @relation("MaterialAutor")
+  provas            Prova[]            @relation("ProvaProfessor")
+  pagamentos        Pagamento[]        @relation("PagamentoRegistrador")
+  folhaPagamentos   FolhaPagamento[]
+  notificacaos      Notificacao[]
+  alunoId           String?
+  responsavelId     String?
+  professorId       String?
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+}
+
+model Unidade {
+  id        String   @id @default(cuid())
+  nome      String
+  cnpj      String?  @unique
+  endereco  String?
+  cidade    String?
+  uf        String?
+  telefone  String?
+  email     String?
+  ativa     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  turmas       Turma[]
+  alunos       Aluno[]
+  professores  Professor[]
+  contratos    Contrato[]
+  mensalidades Mensalidade[]
+  folhas       FolhaPagamento[]
+  materiais    MaterialDidatico[]
+  provas       Prova[]
+  reposicoes   ReposicaoAula[]
+}
+
+model Curso {
+  id                String   @id @default(cuid())
+  nome              String
+  idioma            String
+  descricao         String?
+  cargaHorariaTotal Int      @default(0)
+  frequenciaMinima  Float    @default(75)
+  ativo             Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  niveis    Nivel[]
+  turmas    Turma[]
+  materiais MaterialDidatico[]
+  provas    Prova[]
+  contratos Contrato[]
+}
+
+model Nivel {
+  id           String   @id @default(cuid())
+  nome         String
+  ordem        Int      @default(1)
+  cargaHoraria Int      @default(0)
+  cursoId      String
+  curso        Curso    @relation(fields: [cursoId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  turmas     Turma[]
+  matriculas Matricula[]
+
+  @@index([cursoId])
+}
+
+model Aluno {
+  id             String       @id @default(cuid())
+  userId         String?      @unique
+  user           User?        @relation(fields: [userId], references: [id])
+  nome           String
+  cpf            String?      @unique
+  dataNascimento DateTime?
+  email          String?
+  telefone       String?
+  endereco       String?
+  responsavelId  String?
+  responsavel    Responsavel? @relation(fields: [responsavelId], references: [id])
+  unidadeId      String?
+  unidade        Unidade?     @relation(fields: [unidadeId], references: [id])
+  ativo          Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  matriculas   Matricula[]
+  presencas    Presenca[]
+  notas        Nota[]
+  boletins     Boletim[]
+  contratos    Contrato[]
+  mensalidades Mensalidade[]
+  reposicoes   ReposicaoAula[]
+
+  @@index([responsavelId])
+  @@index([unidadeId])
+}
+
+model Responsavel {
+  id         String   @id @default(cuid())
+  userId     String?  @unique
+  user       User?    @relation(fields: [userId], references: [id])
+  nome       String
+  cpf        String?  @unique
+  email      String?
+  telefone   String?
+  parentesco String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  alunos Aluno[]
+}
+
+model Professor {
+  id             String   @id @default(cuid())
+  userId         String?  @unique
+  user           User?    @relation(fields: [userId], references: [id])
+  nome           String
+  cpf            String?  @unique
+  email          String?
+  telefone       String?
+  especialidades String?
+  valorHora      Decimal? @db.Decimal(10, 2)
+  unidadeId      String?
+  unidade        Unidade? @relation(fields: [unidadeId], references: [id])
+  ativo          Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  turmas         Turma[]
+  aulas          Aula[]
+  provas         Prova[]
+  materiais      MaterialDidatico[]
+  cargasHorarias CargaHoraria[]
+  folhas         FolhaPagamento[]
+  reposicoes     ReposicaoAula[]
+
+  @@index([unidadeId])
+}
+
+model Turma {
+  id          String     @id @default(cuid())
+  codigo      String     @unique
+  nome        String
+  cursoId     String
+  curso       Curso      @relation(fields: [cursoId], references: [id])
+  nivelId     String
+  nivel       Nivel      @relation(fields: [nivelId], references: [id])
+  unidadeId   String
+  unidade     Unidade    @relation(fields: [unidadeId], references: [id])
+  professorId String?
+  professor   Professor? @relation(fields: [professorId], references: [id])
+  capacidade  Int        @default(15)
+  dataInicio  DateTime?
+  dataFim     DateTime?
+  status      String     @default("aberta") // aberta | em_andamento | encerrada | cancelada
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  horarios   Horario[]
+  matriculas Matricula[]
+  aulas      Aula[]
+  reposicoes ReposicaoAula[]
+
+  @@index([cursoId])
+  @@index([nivelId])
+  @@index([unidadeId])
+  @@index([professorId])
+}
+
+model Horario {
+  id         String   @id @default(cuid())
+  turmaId    String
+  turma      Turma    @relation(fields: [turmaId], references: [id])
+  diaSemana  Int // 0-6
+  horaInicio String // HH:mm
+  horaFim    String // HH:mm
+  sala       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([turmaId])
+}
+
+model Matricula {
+  id            String   @id @default(cuid())
+  alunoId       String
+  aluno         Aluno    @relation(fields: [alunoId], references: [id])
+  turmaId       String
+  turma         Turma    @relation(fields: [turmaId], references: [id])
+  nivelId       String
+  nivel         Nivel    @relation(fields: [nivelId], references: [id])
+  dataMatricula DateTime @default(now())
+  status        String   @default("ativa") // ativa | trancada | cancelada | concluida
+  valorMensal   Decimal  @db.Decimal(10, 2)
+  desconto      Float    @default(0)
+  observacoes   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  contratos    Contrato[]
+  mensalidades Mensalidade[]
+  boletins     Boletim[]
+
+  @@index([alunoId])
+  @@index([turmaId])
+  @@index([nivelId])
+}
+
+model Contrato {
+  id          String    @id @default(cuid())
+  numero      String    @unique
+  matriculaId String
+  matricula   Matricula @relation(fields: [matriculaId], references: [id])
+  alunoId     String
+  aluno       Aluno     @relation(fields: [alunoId], references: [id])
+  unidadeId   String
+  unidade     Unidade   @relation(fields: [unidadeId], references: [id])
+  cursoId     String
+  curso       Curso     @relation(fields: [cursoId], references: [id])
+  criadoPorId String?
+  criadoPor   User?     @relation("ContratoCriador", fields: [criadoPorId], references: [id])
+  dataInicio  DateTime
+  dataFim     DateTime?
+  valorTotal  Decimal   @db.Decimal(10, 2)
+  parcelas    Int       @default(12)
+  status      String    @default("ativo") // ativo | encerrado | cancelado
+  arquivoUrl  String?
+  aceitoEm    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  mensalidades Mensalidade[]
+
+  @@index([matriculaId])
+  @@index([alunoId])
+  @@index([unidadeId])
+  @@index([cursoId])
+  @@index([criadoPorId])
+}
+
+model Aula {
+  id          String     @id @default(cuid())
+  turmaId     String
+  turma       Turma      @relation(fields: [turmaId], references: [id])
+  professorId String?
+  professor   Professor? @relation(fields: [professorId], references: [id])
+  data        DateTime
+  conteudo    String?
+  tema        String?
+  observacoes String?
+  status      String     @default("planejada") // planejada | realizada | cancelada
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  presencas  Presenca[]
+  reposicoes ReposicaoAula[]
+
+  @@index([turmaId])
+  @@index([professorId])
+}
+
+model Presenca {
+  id            String   @id @default(cuid())
+  aulaId        String
+  aula          Aula     @relation(fields: [aulaId], references: [id])
+  alunoId       String
+  aluno         Aluno    @relation(fields: [alunoId], references: [id])
+  presente      Boolean  @default(false)
+  justificada   Boolean  @default(false)
+  justificativa String?
+  registradoEm  DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([aulaId, alunoId])
+  @@index([aulaId])
+  @@index([alunoId])
+}
+
+model ReposicaoAula {
+  id              String     @id @default(cuid())
+  alunoId         String
+  aluno           Aluno      @relation(fields: [alunoId], references: [id])
+  aulaOrigemId    String?
+  aulaOrigem      Aula?      @relation(fields: [aulaOrigemId], references: [id])
+  turmaId         String?
+  turma           Turma?     @relation(fields: [turmaId], references: [id])
+  professorId     String?
+  professor       Professor? @relation(fields: [professorId], references: [id])
+  unidadeId       String?
+  unidade         Unidade?   @relation(fields: [unidadeId], references: [id])
+  solicitadoPorId String?
+  solicitadoPor   User?      @relation("ReposicaoSolicitante", fields: [solicitadoPorId], references: [id])
+  dataSolicitacao DateTime   @default(now())
+  dataReposicao   DateTime?
+  motivo          String?
+  status          String     @default("pendente") // pendente | agendada | realizada | cancelada
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([alunoId])
+  @@index([aulaOrigemId])
+  @@index([turmaId])
+  @@index([professorId])
+  @@index([unidadeId])
+  @@index([solicitadoPorId])
+}
+
+model MaterialDidatico {
+  id          String     @id @default(cuid())
+  titulo      String
+  descricao   String?
+  tipo        String     @default("pdf") // pdf | video | audio | link | outro
+  url         String
+  cursoId     String?
+  curso       Curso?     @relation(fields: [cursoId], references: [id])
+  unidadeId   String?
+  unidade     Unidade?   @relation(fields: [unidadeId], references: [id])
+  autorId     String?
+  autor       User?      @relation("MaterialAutor", fields: [autorId], references: [id])
+  professorId String?
+  professor   Professor? @relation(fields: [professorId], references: [id])
+  publico     Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([cursoId])
+  @@index([unidadeId])
+  @@index([autorId])
+  @@index([professorId])
+}
+
+model Prova {
+  id            String     @id @default(cuid())
+  titulo        String
+  descricao     String?
+  cursoId       String?
+  curso         Curso?     @relation(fields: [cursoId], references: [id])
+  unidadeId     String?
+  unidade       Unidade?   @relation(fields: [unidadeId], references: [id])
+  professorId   String?
+  professor     Professor? @relation(fields: [professorId], references: [id])
+  criadoPorId   String?
+  criadoPor     User?      @relation("ProvaProfessor", fields: [criadoPorId], references: [id])
+  dataAplicacao DateTime?
+  peso          Float      @default(1)
+  notaMaxima    Float      @default(10)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  notas Nota[]
+
+  @@index([cursoId])
+  @@index([unidadeId])
+  @@index([professorId])
+  @@index([criadoPorId])
+}
+
+model Nota {
+  id         String   @id @default(cuid())
+  provaId    String
+  prova      Prova    @relation(fields: [provaId], references: [id])
+  alunoId    String
+  aluno      Aluno    @relation(fields: [alunoId], references: [id])
+  valor      Float
+  observacao String?
+  lancadaEm  DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([provaId, alunoId])
+  @@index([provaId])
+  @@index([alunoId])
+}
+
+model Boletim {
+  id          String    @id @default(cuid())
+  alunoId     String
+  aluno       Aluno     @relation(fields: [alunoId], references: [id])
+  matriculaId String
+  matricula   Matricula @relation(fields: [matriculaId], references: [id])
+  periodo     String // ex: 2025-1
+  mediaFinal  Float?
+  frequencia  Float?
+  situacao    String    @default("em_andamento") // em_andamento | aprovado | reprovado | recuperacao
+  observacoes String?
+  emitidoEm   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([alunoId, matriculaId, periodo])
+  @@index([alunoId])
+  @@index([matriculaId])
+}
+
+model Mensalidade {
+  id          String    @id @default(cuid())
+  matriculaId String
+  matricula   Matricula @relation(fields: [matriculaId], references: [id])
+  contratoId  String?
+  contrato    Contrato? @relation(fields: [contratoId], references: [id])
+  alunoId     String
+  aluno       Aluno     @relation(fields: [alunoId], references: [id])
+  unidadeId   String?
+  unidade     Unidade?  @relation(fields: [unidadeId], references: [id])
+  competencia String // ex: 2025-01
+  valor       Decimal   @db.Decimal(10, 2)
+  desconto    Decimal   @default(0) @db.Decimal(10, 2)
+  valorFinal  Decimal   @db.Decimal(10, 2)
+  vencimento  DateTime
+  status      String    @default("pendente") // pendente | paga | atrasada | cancelada | negociada
+  pagoEm      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  pagamentos Pagamento[]
+
+  @@index([matriculaId])
+  @@index([contratoId])
+  @@index([alunoId])
+  @@index([unidadeId])
+}
+
+model Pagamento {
+  id              String       @id @default(cuid())
+  mensalidadeId   String?
+  mensalidade     Mensalidade? @relation(fields: [mensalidadeId], references: [id])
+  alunoId         String?
+  valor           Decimal      @db.Decimal(10, 2)
+  metodo          String       @default("pix") // pix | boleto | cartao | dinheiro | transferencia
+  status          String       @default("confirmado") // pendente | confirmado | estornado | falhou
+  referencia      String?
+  gatewayId       String?
+  registradoPorId String?
+  registradoPor   User?        @relation("PagamentoRegistrador", fields: [registradoPorId], references: [id])
+  pagoEm          DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([mensalidadeId])
+  @@index([registradoPorId])
+}
+
+model CargaHoraria {
+  id          String    @id @default(cuid())
+  professorId String
+  professor   Professor @relation(fields: [professorId], references: [id])
+  competencia String // ex: 2025-01
+  horasAula   Float     @default(0)
+  horasExtras Float     @default(0)
+  valorHora   Decimal   @db.Decimal(10, 2)
+  valorTotal  Decimal   @db.Decimal(10, 2)
+  observacoes String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([professorId, competencia])
+  @@index([professorId])
+}
+
+model FolhaPagamento {
+  id           String    @id @default(cuid())
+  professorId  String
+  professor    Professor @relation(fields: [professorId], references: [id])
+  unidadeId    String?
+  unidade      Unidade?  @relation(fields: [unidadeId], references: [id])
+  userId       String?
+  user         User?     @relation(fields: [userId], references: [id])
+  competencia  String // ex: 2025-01
+  valorBruto   Decimal   @db.Decimal(10, 2)
+  descontos    Decimal   @default(0) @db.Decimal(10, 2)
+  valorLiquido Decimal   @db.Decimal(10, 2)
+  status       String    @default("pendente") // pendente | pago | cancelado
+  pagoEm       DateTime?
+  observacoes  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([professorId, competencia])
+  @@index([professorId])
+  @@index([unidadeId])
+  @@index([userId])
+}
+
+model Notificacao {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  titulo    String
+  mensagem  String
+  tipo      String    @default("info") // info | alerta | cobranca | academico | sistema
+  canal     String    @default("app") // app | email | whatsapp | sms
+  lida      Boolean   @default(false)
+  lidaEm    DateTime?
+  metadata  Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+}
